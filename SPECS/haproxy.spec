@@ -84,7 +84,8 @@ RPM_OPT_FLAGS="$old_rpm_opt_flags"
 popd
 
 # make haproxy
-%{__make} -j$(nproc) %{?_smp_mflags} ARCH=%{_target_cpu} TARGET=linux-glibc \
+%{__make} -j$(nproc) %{?_smp_mflags} ARCH=%{_target_cpu} \
+TARGET=linux-glibc \
 %ifarch %ix86 x86_64
   USE_REGPARM=1 \
 %endif
