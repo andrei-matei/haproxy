@@ -109,12 +109,6 @@ mkdir -p %{_tmppath}/local
 %{__make} -C contrib/iprange
 %{__make} -C contrib/tcploop
 
-# make manuals
-pushd doc/lua-api
-%{__make} man
-gzip -9 _build/man/haproxy-lua.1
-popd
-
 # make systemd service
 cat >haproxy.service <<- EOT
 [Unit]
