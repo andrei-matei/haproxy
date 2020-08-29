@@ -76,16 +76,8 @@ HAProxy Load Balancer with recent OpenSSL and Prometheus metrics service
 %build
 mkdir -p %{_tmppath}/local
 
-old_rpm_opt_flags="$RPM_OPT_FLAGS"
-RPM_OPT_FLAGS="$RPM_OPT_FLAGS -Wa,--noexecstack -DPURIFY"
-%{__make} -j$(nproc) %{?_smp_mflags}
-%{__make} -j$(nproc) install_sw
-RPM_OPT_FLAGS="$old_rpm_opt_flags"
-popd
-
 # make haproxy
-%{__make} -j$(nproc) ARCH=%{_target_cpu} \
-TARGET=linux-glibc \
+%{__make} -j$(nproc) %{?_smp_mflags} ARCH=%{_target_cpu} TARGET=linux-glibc \
 %ifarch %ix86 x86_64
   USE_REGPARM=1 \
 %endif
