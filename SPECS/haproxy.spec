@@ -63,7 +63,7 @@ BuildRequires: python-sphinx
 Source0: https://www.haproxy.org/download/%{haproxy_version}/src/haproxy-%{haproxy_version}.%{haproxy_release}.tar.gz
 Source1: halog.1.gz
 
-# description
+%description
 HAProxy Load Balancer with recent OpenSSL and Prometheus metrics service
 
 # miscellanea
