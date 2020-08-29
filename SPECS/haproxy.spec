@@ -13,7 +13,7 @@
 %global _performance_build 1
 
 # package release
-%define package_name    haproxy-devopslog
+%define package_name    haproxy
 %define package_release 1
 %define package_vendor  devopslog
 
