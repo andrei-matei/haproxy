@@ -238,7 +238,6 @@ install -D haproxy.sysconfig %{buildroot}%{_sysconfdir}/sysconfig/haproxy
 
 # haproxy-halog package
 install -D contrib/halog/halog %{buildroot}%{_sbindir}/halog
-install -D %{SOURCE1} %{buildroot}%{_mandir}/man1/halog.1.gz
 
 # haproxy-tools package
 install -D contrib/hpack/decode      %{buildroot}%{_bindir}/decode
