@@ -294,9 +294,6 @@ install -D contrib/tcploop/tcploop   %{buildroot}%{_bindir}/tcploop
 %attr(0644,root,root) %doc doc/proxy-protocol.txt
 %attr(0644,root,root) %doc doc/SPOE.txt
 
-%attr(0644,root,root) %doc %{_mandir}/man1/haproxy.1.gz
-%attr(0644,root,root) %doc %{_mandir}/man1/haproxy-lua.1.gz
-
 %attr(0644,root,root) %license LICENSE
 %attr(0644,root,root) %license doc/gpl.txt
 %attr(0644,root,root) %license doc/lgpl.txt
@@ -312,7 +309,6 @@ HAProxy tool for log statistics reporting
 %files halog
 %defattr(-,root,root,-)
 %attr(0755,root,root) %{_sbindir}/halog
-%attr(0644,root,root) %doc %{_mandir}/man1/halog.1.gz
 
 # haproxy-tools package
 %package tools
