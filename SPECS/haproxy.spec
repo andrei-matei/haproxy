@@ -228,9 +228,6 @@ install -d %{buildroot}%{haproxy_homedir}
 install -d %{buildroot}%{haproxy_libdir}
 install -d %{buildroot}%{haproxy_rundir}
 
-# haproxy package
-install -D doc/lua-api/_build/man/haproxy-lua.1.gz %{buildroot}%{_mandir}/man1/haproxy-lua.1.gz
-
 install -D haproxy.cfg       %{buildroot}%{haproxy_confdir}/haproxy.cfg
 install -D haproxy.tmpfiles  %{buildroot}%{haproxy_tmpfilesdir}/haproxy.conf
 install -D haproxy.service   %{buildroot}%{_unitdir}/haproxy.service
