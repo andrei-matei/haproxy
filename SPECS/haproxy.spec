@@ -1,322 +1,299 @@
-# RPM specfile for the HAProxy Load Balancer
-# Copyright (C) 2017-2019 Matouš Jan Fialka, <https://mjf.cz/>
-# Released under the terms of "The MIT License"
+%define haproxy_user    haproxy
+%define haproxy_group   %{haproxy_user}
+%define haproxy_home    %{_localstatedir}/lib/haproxy
 
-# Usage: rpmbuild -ba haproxy.spec \
-#        [-D'with_libslz 1'] \
-#        [-D'with_51degrees_addon 1'] \
-#        [-D'addon_51degrees_trie 1'] \
-#        [--undefine=_disable_source_fetch]
+%if 0%{?rhel} > 6 && 0%{!?amzn2}
+    %define dist %{expand:%%(/usr/lib/rpm/redhat/dist.sh --dist)}
+%endif
 
-# global
-%global _hardened_build    1
-%global _performance_build 1
+%if 0%{?rhel} < 7
+    %{!?__global_ldflags: %global __global_ldflags -Wl,-z,relro}
+%endif
 
-# package release
-%define package_name    haproxy
-%define package_release 1
-%define package_vendor  devopslog
+%global _hardened_build 1
 
-# haproxy
-%define haproxy_version     2.2
-%define haproxy_release     2
-%define haproxy_user        haproxy
-%define haproxy_uid         188
-%define haproxy_group       %{haproxy_user}
-%define haproxy_gid         %{haproxy_uid}
-%define haproxy_homedir     %{_localstatedir}/lib/haproxy
-%define haproxy_confdir     %{_sysconfdir}/haproxy
-%define haproxy_tmpfilesdir %{_sysconfdir}/tmpfiles.d
-%define haproxy_libdir      %{_sharedstatedir}/haproxy
-%define haproxy_chrootdir   %{_var}/empty/haproxy
-%define haproxy_rundir      /run/haproxy
+Summary: HA-Proxy reverse proxy for high availability environments
+Name: haproxy
+Version: %{version}
+Release: %{release}%{?dist}
+License: GPLv2+
+Group: System Environment/Daemons
+URL: http://www.haproxy.org/
+Source0: http://www.haproxy.org/download/%{mainversion}/src/%{name}-%{version}.tar.gz
+Source1: %{name}.cfg
+%if 0%{?el6} || 0%{?amzn1}
+Source2: %{name}.init
+%else
+Source2: %{name}.service
+%endif
+Source3: %{name}.logrotate
+Source4: %{name}.syslog%{?dist}
+Source5: halog.1
+BuildRoot: %{_tmppath}/%{name}-%{version}-root
 
-# package information
-Name:      %{package_name}
-Version:   %{haproxy_version}.%{haproxy_release}
-Release:   %{package_release}.%{package_vendor}%{?dist}
-Summary:   HAProxy Load Balancer
-URL:       https://www.haproxy.org
-License:   GPLv2+
-Group:     HAProxy
-Provides:  %{package_name}%{?_isa} = %{version}-%{release}
-Conflicts: %{package_name}%{?_isa} < %{version}-%{release}
-
-# requirements
-Requires:         epel-release
-Requires:         ius-release
-Requires:         lua53u
-Requires(pre):    shadow-utils
-Requires(preun):  systemd
-Requires(post):   systemd
-Requires(postun): systemd
-
-# build requirements
-BuildRequires: gcc
-BuildRequires: systemd-devel
 BuildRequires: pcre-devel
 BuildRequires: zlib-devel
-BuildRequires: lua53u-devel
-BuildRequires: python-sphinx
+BuildRequires: make
+BuildRequires: gcc openssl-devel
+BuildRequires: openssl-devel
 
-# sources
-Source0: https://www.haproxy.org/download/%{haproxy_version}/src/haproxy-%{haproxy_version}.%{haproxy_release}.tar.gz
+Requires(pre):      shadow-utils
+Requires:           rsyslog
+
+%if 0%{?el6} || 0%{?amzn1}
+Requires(post):     chkconfig, initscripts
+Requires(preun):    chkconfig, initscripts
+Requires(postun):   initscripts
+%endif
+
+%if 0%{?el7} || 0%{?amzn2} || 0%{?el8}
+BuildRequires:      systemd-units
+BuildRequires:      systemd-devel
+Requires(post):     systemd
+Requires(preun):    systemd
+Requires(postun):   systemd
+%endif
 
 %description
-HAProxy Load Balancer with recent OpenSSL and Prometheus metrics service
+HA-Proxy is a TCP/HTTP reverse proxy which is particularly suited for high
+availability environments. Indeed, it can:
+- route HTTP requests depending on statically assigned cookies
+- spread the load among several servers while assuring server persistence
+  through the use of HTTP cookies
+- switch to backup servers in the event a main one fails
+- accept connections to special ports dedicated to service monitoring
+- stop accepting connections without breaking existing ones
+- add/modify/delete HTTP headers both ways
+- block requests matching a particular pattern
 
-# miscellanea
-%define __perl_requires %{nil}
+It needs very little resource. Its event-driven architecture allows it to easily
+handle thousands of simultaneous connections on hundreds of instances without
+risking the system's stability.
 
 %prep
+%setup -q
 
-%setup -q -n %{package_name}-%{version}
+# We don't want any perl dependecies in this RPM:
+%define __perl_requires /bin/true
 
 %build
-mkdir -p %{_tmppath}/local
-
-# make haproxy
-%{__make} -j$(nproc) %{?_smp_mflags} ARCH=%{_target_cpu} TARGET=linux-glibc \
+regparm_opts=
 %ifarch %ix86 x86_64
-  USE_REGPARM=1 \
+regparm_opts="USE_REGPARM=1"
 %endif
-  USE_LINUX_TPROXY=1 \
-  USE_TFO=1 \
-  USE_NS=1 \
-  USE_SYSTEMD=1 \
-  USE_OPENSSL=1 \
-  USE_ZLIB=1 \
-  USE_PCRE=1 \
-  USE_PCRE_JIT=1 \
-  USE_LUA=1 \
-  SSL_LIB=%{_tmppath}/local/lib \
-  SSL_INC=%{_tmppath}/local/include \
-  LUA_LIB_NAME=lua-5.3 \
-  LUA_LIB=%{_libdir}/lua/5.3 \
-  LUA_INC=%{_includedir}/lua-5.3 \
-  ADDINC='%{optflags}' \
-  ADDLIB='%{__global_ldflags} -pthread' \
-  DEFINE='-DTCP_USER_TIMEOUT=18 -DMAX_SESS_STKCTR=12' \
-  EXTRA_OBJS='contrib/prometheus-exporter/service-prometheus.o'
 
-# make halog
-%{__make} -C contrib/halog
+RPM_BUILD_NCPUS="`/usr/bin/nproc 2>/dev/null || /usr/bin/getconf _NPROCESSORS_ONLN`";
 
-# make haproxy tools
-%{__make} -C contrib/hpack
-%{__make} -C contrib/ip6range
-%{__make} -C contrib/iprange
-%{__make} -C contrib/tcploop
+# Default opts
+systemd_opts=
+pcre_opts="USE_PCRE=1"
+USE_TFO=
+USE_NS=
 
-# make systemd service
-cat >haproxy.service <<- EOT
-[Unit]
-Description=HAProxy Load Balancer
-Documentation=whatis:haproxy man:haproxy(1) http://cbonte.github.io/haproxy-dconv/%{haproxy_version}/intro.html
-After=network-online.target
-Wants=network-online.target
+%if 0%{?el7} || 0%{?amzn2} || 0%{?el8}
+systemd_opts="USE_SYSTEMD=1"
+pcre_opts="USE_PCRE=1 USE_PCRE_JIT=1"
+%endif
 
-[Service]
-UMask=077
-AssertPathExists=%{_sysconfdir}/sysconfig/haproxy
-EnvironmentFile=-%{_sysconfdir}/sysconfig/haproxy
-ExecStartPre=%{_sbindir}/haproxy -f "\$CONFIGDIR" -C "\$CONFIGDIR" -c -q -L "\$LOCAL_PEER_NAME"
-#ExecStartPre=-%{_bindir}/mkdir "%{haproxy_chrootdir}/dev"
-#ExecStartPre=-%{_bindir}/mknod "%{haproxy_chrootdir}/dev/random" c 1 8
-#ExecStartPre=-%{_bindir}/mknod "%{haproxy_chrootdir}/dev/urandom" c 1 9
-ExecStart=%{_sbindir}/haproxy -Ws -f "\$CONFIGDIR" -C "\$CONFIGDIR" -p "\$MASTER_PIDFILE" -sf "\$(cat \$MASTER_PIDFILE)" -L "\$LOCAL_PEER_NAME" \$EXTRA_START_OPTS
-ExecReload=%{_sbindir}/haproxy -f "\$CONFIGDIR" -C "\$CONFIGDIR" -c -q -L "\$LOCAL_PEER_NAME" \$EXTRA_RELOAD_OPTS
-ExecReload=%{_bindir}/kill -USR2 \$MAINPID
-ExecStopPost=%{_bindir}/rm "\$MASTER_SOCKET" "\$MASTER_PIDFILE" "\$STATS_SOCKET"
-Type=notify
-NotifyAccess=main
-KillMode=mixed
-KillSignal=USR1
-Restart=always
-SuccessExitStatus=143
-OOMScoreAdjust=-999
-NoNewPrivileges=true
-ProtectHome=true
-ProtectSystem=true
-SystemCallFilter=~@cpu-emulation @keyring @module @obsolete @raw-io @reboot @swap @sync
+%if 0%{?el7} || 0%{?amzn2} || 0%{?amzn1} || 0%{?el8}
+USE_TFO=1
+USE_NS=1
+%endif
 
-[Install]
-WantedBy=multi-user.target
-EOT
+%if 0%{_use_lua}
+USE_LUA="USE_LUA=1"
+%endif
 
-# make sysconfig
-cat >haproxy.sysconfig <<- EOT
-CONFIGDIR='%{_sysconfdir}/haproxy'
-MASTER_PIDFILE='%{haproxy_rundir}/master.pid'
-MASTER_SOCKET='%{haproxy_rundir}/master.sock'
-STATS_SOCKET='%{haproxy_rundir}/stats.sock'
-LOCAL_PEER_NAME="\$HOSTNAME"
-EXTRA_START_OPTS="-S \$MASTER_SOCKET"
-EXTRA_RELOAD_OPTS=""
-EOT
+%if 0%{_use_prometheus}
+USE_PROMETHEUS="EXTRA_OBJS=contrib/prometheus-exporter/service-prometheus.o"
+%endif
 
-# make haproxy config
-cat >haproxy.cfg <<- EOT
-global
+%{__make} -j$RPM_BUILD_NCPUS %{?_smp_mflags} ${USE_LUA} CPU="generic" TARGET="linux-glibc" ${systemd_opts} ${pcre_opts} USE_OPENSSL=1 USE_ZLIB=1 ${regparm_opts} ADDINC="%{optflags}" USE_LINUX_TPROXY=1 USE_THREAD=1 USE_TFO=${USE_TFO} USE_NS=${USE_NS} ${USE_PROMETHEUS} ADDLIB="%{__global_ldflags}"
 
-    user haproxy
-    group haproxy
+pushd contrib/halog
+%{__make} ${halog} OPTIMIZE="%{optflags} %{__global_ldflags}"
+popd
 
-    chroot %{haproxy_chrootdir}
-
-    stats socket \$STATS_SOCKET mode 0600 expose-fd listeners level user
-    stats timeout 2m
-
-defaults
-
-    mode tcp
-
-    timeout client 5s
-    timeout connect 5s
-    timeout server 5s
-
-frontend stats
-
-    bind *:8404
-
-    mode http
-
-    option http-use-htx
-
-    http-request use-service prometheus-exporter if { path /metrics }
-
-    stats enable
-    stats uri /stats
-    stats refresh 10s
-EOT
-
-cat >haproxy.tmpfiles <<- EOT
-d %{haproxy_rundir} 0700 %{haproxy_user} %{haproxy_group} -
-EOT
-
-%clean
-[ %{buildroot} = / ] || rm -r -f %{buildroot}
-[ %{_tmppath}/local = / ] || rm -r -f %{_tmppath}/local
-
-%pre
-getent group %{haproxy_group} &>/dev/null || \
-  groupadd %{haproxy_group} \
-    -r \
-    -g %{haproxy_gid}
-
-getent passwd %{haproxy_user} &>/dev/null || \
-  useradd %{haproxy_user} \
-    -r \
-    -u %{haproxy_uid} \
-    -g %{haproxy_group} \
-    -d %{haproxy_homedir} \
-    -c 'HAProxy Load Balancer' \
-    -s /sbin/nologin
-
-exit 0
+pushd contrib/iprange
+%{__make} iprange OPTIMIZE="%{optflags} %{__global_ldflags}"
+popd
 
 %install
-umask 077
+[ "%{buildroot}" != "/" ] && %{__rm} -rf %{buildroot}
 
-%{__make} install-bin DESTDIR=%{buildroot} PREFIX=%{_prefix}
-%{__make} install-man DESTDIR=%{buildroot} PREFIX=%{_prefix}
+%{__install} -d %{buildroot}%{_sbindir}
+%{__install} -d %{buildroot}%{_bindir}
+%{__install} -d %{buildroot}%{_sysconfdir}/%{name}
+%{__install} -d %{buildroot}%{_sysconfdir}/%{name}/errors
+%{__install} -d %{buildroot}%{_mandir}/man1/
+%{__install} -d %{buildroot}%{_sysconfdir}/logrotate.d
+%{__install} -d %{buildroot}%{_sysconfdir}/rsyslog.d
+%{__install} -d %{buildroot}%{_localstatedir}/log/%{name}
 
-install -d %{buildroot}%{haproxy_chrootdir}
-install -d %{buildroot}%{haproxy_confdir}
-install -d %{buildroot}%{haproxy_homedir}
-install -d %{buildroot}%{haproxy_libdir}
-install -d %{buildroot}%{haproxy_rundir}
+%{__install} -s %{name} %{buildroot}%{_sbindir}/
 
-install -D haproxy.cfg       %{buildroot}%{haproxy_confdir}/haproxy.cfg
-install -D haproxy.tmpfiles  %{buildroot}%{haproxy_tmpfilesdir}/haproxy.conf
-install -D haproxy.service   %{buildroot}%{_unitdir}/haproxy.service
-install -D haproxy.sysconfig %{buildroot}%{_sysconfdir}/sysconfig/haproxy
 
-# haproxy-halog package
-install -D contrib/halog/halog %{buildroot}%{_sbindir}/halog
+%{__install} -c -m 644 %{SOURCE1} %{buildroot}%{_sysconfdir}/%{name}/haproxy.cfg
+%{__install} -c -m 644 examples/errorfiles/*.http %{buildroot}%{_sysconfdir}/%{name}/errors/
+%{__install} -c -m 644 doc/%{name}.1 %{buildroot}%{_mandir}/man1/
+%{__install} -c -m 644 %{SOURCE4} %{buildroot}%{_sysconfdir}/rsyslog.d/49-%{name}.conf
+%{__install} -c -m 644 %{SOURCE3} %{buildroot}%{_sysconfdir}/logrotate.d/%{name}
 
-# haproxy-tools package
-install -D contrib/hpack/decode      %{buildroot}%{_bindir}/decode
-install -D contrib/ip6range/ip6range %{buildroot}%{_bindir}/ip6range
-install -D contrib/iprange/iprange   %{buildroot}%{_bindir}/iprange
-install -D contrib/tcploop/tcploop   %{buildroot}%{_bindir}/tcploop
+%{__install} -p -m 0755 ./contrib/halog/halog %{buildroot}%{_bindir}/halog
+%{__install} -p -m 0755 ./contrib/iprange/iprange %{buildroot}%{_bindir}/iprange
+%{__install} -p -D -m 0644 %{SOURCE5} %{buildroot}%{_mandir}/man1/halog.1
+
+%if 0%{?el6} || 0%{?amzn1}
+%{__install} -d %{buildroot}%{_sysconfdir}/rc.d/init.d
+%{__install} -c -m 755 %{SOURCE2} %{buildroot}%{_sysconfdir}/rc.d/init.d/%{name}
+%endif
+
+%if 0%{?el7} || 0%{?amzn2} || 0%{?el8}
+%{__install} -s %{name} %{buildroot}%{_sbindir}/
+%{__install} -p -D -m 0644 %{SOURCE2} %{buildroot}%{_unitdir}/%{name}.service
+%endif
+
+%clean
+[ "%{buildroot}" != "/" ] && %{__rm} -rf %{buildroot}
+
+%pre
+getent group %{haproxy_group} >/dev/null || \
+       groupadd -g 188 -r %{haproxy_group}
+getent passwd %{haproxy_user} >/dev/null || \
+       useradd -u 188 -r -g %{haproxy_group} -d %{haproxy_home} \
+       -s /sbin/nologin -c "%{name}" %{haproxy_user}
+exit 0
 
 %post
-%systemd_post haproxy.service
+%if 0%{?el7} || 0%{?amzn2} || 0%{?el8}
+%systemd_post %{name}.service
+systemctl reload-or-try-restart rsyslog.service
+%endif
+
+%if 0%{?el6} || 0%{?amzn1}
+/sbin/chkconfig --add %{name}
+/sbin/service rsyslog restart >/dev/null 2>&1 || :
+%endif
 
 %preun
-%systemd_preun haproxy.service
+%if 0%{?el7} || 0%{?amzn2} || 0%{?el8}
+%systemd_preun %{name}.service
+%endif
+
+%if 0%{?el6} || 0%{?amzn1}
+if [ $1 = 0 ]; then
+  /sbin/service %{name} stop >/dev/null 2>&1 || :
+  /sbin/chkconfig --del %{name}
+fi
+%endif
 
 %postun
-%systemd_postun_with_restart haproxy.service
+%if 0%{?el7} || 0%{?amzn2} || 0%{?el8}
+%systemd_postun_with_restart %{name}.service
+systemctl reload-or-try-restart rsyslog.service
+%endif
+
+%if 0%{?el6} || 0%{?amzn1}
+if [ "$1" -ge "1" ]; then
+  /sbin/service %{name} condrestart >/dev/null 2>&1 || :
+  /sbin/service rsyslog restart >/dev/null 2>&1 || :
+fi
+%endif
 
 %files
-%defattr(-,root,root,-)
+%defattr(-,root,root)
+%doc CHANGELOG README examples/*.cfg doc/architecture.txt doc/configuration.txt doc/intro.txt doc/management.txt doc/proxy-protocol.txt
+%if 0%{?el7} || 0%{?amzn2} || 0%{?el8}
+    %license LICENSE
+%endif
+%doc %{_mandir}/man1/*
+%dir %{_sysconfdir}/%{name}
+%{_sysconfdir}/%{name}/errors
+%attr(0644,root,root) %config(noreplace) %{_sysconfdir}/%{name}/%{name}.cfg
+%attr(0755,root,root) %{_sbindir}/%{name}
+%dir %{_localstatedir}/log/%{name}
+%attr(0644,root,root) %config(noreplace) %{_sysconfdir}/logrotate.d/%{name}
+%attr(0644,root,root) %config(noreplace) %{_sysconfdir}/rsyslog.d/49-%{name}.conf
+%{_bindir}/halog
+%{_bindir}/iprange
 
-%attr(0700,root,root) %dir %{haproxy_confdir}
-%attr(0700,root,root) %dir %{haproxy_homedir}
-%attr(0700,root,root) %dir %{haproxy_libdir}
+%if 0%{?el6} || 0%{?amzn1}
+%attr(0755,root,root) %config %_sysconfdir/rc.d/init.d/%{name}
+%endif
 
-%attr(0700,%{haproxy_user},%{haproxy_group}) %dir %{haproxy_chrootdir}
-%attr(0700,%{haproxy_user},%{haproxy_group}) %dir %{haproxy_rundir}
+%if 0%{?el7} || 0%{?amzn2} || 0%{?el8}
+%attr(-,root,root) %{_unitdir}/%{name}.service
+%endif
 
-%attr(0755,root,root) %{_sbindir}/haproxy
-%attr(0644,root,root) %{_unitdir}/haproxy.service
+%changelog
+* Mon Aug 31 2020 Andrei Matei <andrei@matei.ro>
+- Change to devopslog config
 
-%attr(0644,root,root) %config(noreplace) %{haproxy_confdir}/haproxy.cfg
-%attr(0644,root,root) %config(noreplace) %{haproxy_tmpfilesdir}/haproxy.conf
-%attr(0644,root,root) %config(noreplace) %{_sysconfdir}/sysconfig/haproxy
+* Sun Jul 12 2020 David Bezemer <info@davidbezemer.nl>
+- Backwards compatible conditional restart using reload-or-try-restart
 
-%attr(0644,root,root) %doc CHANGELOG
-%attr(0644,root,root) %doc CONTRIBUTING
-%attr(0644,root,root) %doc INSTALL
-%attr(0644,root,root) %doc LICENSE
-%attr(0644,root,root) %doc MAINTAINERS
-%attr(0644,root,root) %doc README
-%attr(0644,root,root) %doc ROADMAP
-%attr(0644,root,root) %doc SUBVERS
-%attr(0644,root,root) %doc VERDATE
-%attr(0644,root,root) %doc VERSION
+* Sun Jul 12 2020 David Bezemer <info@davidbezemer.nl>
+- Add support for HAProxy 2.1.x
 
-%attr(0644,root,root) %doc doc/architecture.txt
-%attr(0644,root,root) %doc doc/configuration.txt
-%attr(0644,root,root) %doc doc/gpl.txt
-%attr(0644,root,root) %doc doc/internals/acl.txt
-%attr(0644,root,root) %doc doc/intro.txt
-%attr(0644,root,root) %doc doc/lgpl.txt
-%attr(0644,root,root) %doc doc/management.txt
-%attr(0644,root,root) %doc doc/network-namespaces.txt
-%attr(0644,root,root) %doc doc/proxy-protocol.txt
-%attr(0644,root,root) %doc doc/proxy-protocol.txt
-%attr(0644,root,root) %doc doc/SPOE.txt
+* Sat Jun 13 2020 David Bezemer <info@davidbezemer.nl>
+- Add conditional prometheus module support by mfilz
 
-%attr(0644,root,root) %license LICENSE
-%attr(0644,root,root) %license doc/gpl.txt
-%attr(0644,root,root) %license doc/lgpl.txt
+* Tue Feb 25 2020 David Bezemer <info@davidbezemer.nl>
+- Fix conditional LUA building
+- Add readline-devel as dependency for lua building
 
-# haproxy-halog package
-%package halog
-Summary: HAProxy Log Statistics Reporter
-Group: HAProxy
+* Tue Feb 25 2020 J. Casalino <casalino@adobe.com>
+- Add support for HAProxy 2.1.x
 
-%description halog
-HAProxy tool for log statistics reporting
+* Tue Feb 25 2020 Davasny <davasny@gmail.com>
+- Add conditional LUA building
 
-%files halog
-%defattr(-,root,root,-)
-%attr(0755,root,root) %{_sbindir}/halog
+* Tue Nov 19 2019 J. Casalino <casalino@adobe.com>
+- Only reset dist variable with dist.sh script if dist is CentOS/RHEL>6 and not Amazon Linux 2
 
-# haproxy-tools package
-%package tools
-Summary: HAProxy Tools
-Group: HAProxy
+* Sun Oct 20 2019 David Bezemer <info@davidbezemer.nl>
+- Add compatiblity with CentOS/RHEL 8
 
-%description tools
-HAProxy tools for HPACK decoding, TCP testing, debugging and more
+* Tue Jun 18 2019 David Bezemer <info@davidbezemer.nl>
+- First build of HAproxy 2.0.0
 
-%files tools
-%defattr(-,root,root,-)
-%attr(0755,root,root) %{_bindir}/decode
-%attr(0755,root,root) %{_bindir}/ip6range
-%attr(0755,root,root) %{_bindir}/iprange
-%attr(0755,root,root) %{_bindir}/tcploop
+* Tue Jun 18 2019 David Bezemer <info@davidbezemer.nl>
+- Update to HAproxy 1.9.8
+
+* Wed Sep 26 2018 J. Casalino <casalino@adobe.com>
+- Update to HAproxy 1.8.14
+
+* Fri Jun 29 2018 Topher Cullen <topher@shawlite.com>
+- Update to HAproxy 1.8.12
+- Add support for Amazon Linux 2
+
+* Fri May 18 2018 David Bezemer <info@davidbezemer.nl>
+- Update to HAproxy 1.8.8
+
+* Fri Feb 23 2018 J. Casalino <casalino@adobe.com>
+- Add support for Amazon Linux (Fedora-based)
+
+* Mon Feb 12 2018 David Bezemer <info@davidbezemer.nl>
+- Update to HAproxy 1.8.4
+
+* Fri Jan 26 2018 Kamil Herbik <kamil.herbik@rst.com.pl>
+- Update for HAproxy 1.8
+
+* Mon Jul 31 2017 David Bezemer <info@davidbezemer.nl>
+- Update for HAproxy 1.7.8
+
+* Thu Jun 08 2017 David Bezemer <info@davidbezemer.nl>
+- Update for HAproxy 1.7.5
+- Remove duplicate pcre-devel requirement
+
+* Sun Jan 15 2017 David Bezemer <info@davidbezemer.nl>
+- Update for HAproxy 1.7.2
+
+* Sun Oct 23 2016 David Bezemer <info@davidbezemer.nl>
+- Add systemd compatibility
+
+* Sat Oct 22 2016 David Bezemer <info@davidbezemer.nl>
+- reworked installation structure
+- included rsylog config for logging
+- copy default error files
+- updated to 1.6.9
